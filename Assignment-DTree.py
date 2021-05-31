@@ -1,6 +1,6 @@
 # Author : Li Shanglin
 # StudentID : 18231088
-# Date: 2021-05-28
+# Date: 2021-05-31
 # Teacher: Zengchang.Qin (Ph.D)
 from math import log2, floor
 from graphviz import Digraph
@@ -27,23 +27,26 @@ def entropy(data):
     :return: Information Entropy：信息熵
     """
     iris = [0, 0, 0]
-    for i in range(len(data)):
-        if data[i][-1] == 'Iris-setosa':
-            iris[0] += 1
-        elif data[i][-1] == 'Iris-versicolor':
-            iris[1] += 1
-        else:
-            iris[2] += 1
-    p = [0, 0, 0]
-    e = [0, 0, 0]
-    for i in range(len(p)):
-        p[i] = iris[i] / len(data)
-        if p[i] == 0:
-            e[i] = 0  # 解决数学运算中的除零错误
-        else:
-            e[i] = -p[i] * log2(p[i])
-    Info_ent = sum(e)
-    return Info_ent
+    if len(data) > 0:
+        for i in range(len(data)):
+            if data[i][-1] == 'Iris-setosa':
+                iris[0] += 1
+            elif data[i][-1] == 'Iris-versicolor':
+                iris[1] += 1
+            else:
+                iris[2] += 1
+        p = [0, 0, 0]
+        e = [0, 0, 0]
+        for i in range(len(p)):
+            p[i] = iris[i] / len(data)
+            if p[i] == 0:
+                e[i] = 0  # 解决数学运算中的除零错误
+            else:
+                e[i] = -p[i] * log2(p[i])
+        Info_ent = sum(e)
+        return Info_ent
+    else:
+        return 0
 
 
 def findBestIG(data, k):
@@ -68,8 +71,9 @@ def findBestIG(data, k):
             threshold[i] += 0.1
             info_gain_list[i].append(InfoGainFcn(data, threshold, k)[0][i])
     for i in range(k):  # 求出最佳分类阈值以及对应的信息增益
-        ideal_info_gain[i] = max(info_gain_list[i])
-        ideal_threshold[i] = (info_gain_list[i].index(ideal_info_gain[i]) + 1) * 0.1 + min(cData[i])
+        if len(info_gain_list[i]) > 0:
+            ideal_info_gain[i] = max(info_gain_list[i])
+            ideal_threshold[i] = (info_gain_list[i].index(ideal_info_gain[i]) + 1) * 0.1 + min(cData[i])
 
     return ideal_threshold, ideal_info_gain
 
@@ -109,68 +113,171 @@ def InfoGainFcn(data, threshold, k):
     return [Info_gain, dataClass1, dataClass2]
 
 
-def decisionTree(data, ck):
+def decisionTree(data, ck, t):
     """
     基于ID3算法的决策树
     :param data:需要进行决策树分类的数据集
     :param ck: 数据集特征数
+    :param t: 生成子节点的最小信息增益阈值，默认为0.1
     :return:
     """
-    TreeDict = {'root': {}}
     threshold, infoGain = findBestIG(data, k=ck)
     # 选择信息增益最大的节点构建决策树的根节点
     root_index = infoGain.index(max(infoGain))
+    PDict = TreeDict.setdefault(characterName[root_index] + ' : {:.1f}'.format(threshold[root_index]), {})
     print('Root is : {}   classification threshold is : {:.1f}   information gain is : {:.3f}'.format(
         characterName[root_index], threshold[root_index], infoGain[root_index]))
-    characterName.pop(root_index)
-    TreeGrow(data, threshold, ck, root_index)
+    TreeGrow(data, threshold, ck, root_index, PDict, tIG=t)
+    Tree = TreePrune(TreeDict)
+    return Tree
 
 
-def TreeGrow(data, threshold, n, parent_node_index):
+def TreeGrow(data, threshold, n, parent_node_index, ParentDict, tIG=0.1):
     """
     决策树生长，迭代生成子节点
     :param data: 生长前需要的数据
     :param threshold: 生长前得到的阈值
     :param n: 生长前的特征数量
     :param parent_node_index: 父节点的最大信息增益特征索引
+    :param ParentDict: 父字典
+    :param tIG: 生成子节点的最小信息增益阈值，默认为0.1
     :return:
     """
-    if n > 1: # 如果特征数大于1, 则继续生长决策树, 否则退出生长
-        ig, dClass1, dClass2 = InfoGainFcn(data, threshold, k=n)
-        # 去掉dClass1的“低信息增益特征”数据,在“高信息增益特征”分类成功基础上向下生长。dClass1对应n个高于属性阈值的数据集
-        nodeData = dClass1[parent_node_index]  # 利用“高信息增益特征”分类后剩余数据作为新的数据进行信息熵计算
-        for i in range(len(nodeData)):
-            nodeData[i].pop(parent_node_index)
-        # tValue represents threshold value, infoGain represents the infoGain list
-        tValue, infoGain = findBestIG(nodeData, k=n - 1)
-        node_index = infoGain.index(max(infoGain))
-        if infoGain[node_index] > 0.1:  # 如果信息增益较大，我们将对此节点进行扩展
-            print('Node{} is : {}   classification threshold is : {:.1f}   information gain is : {:.3f}'.format(
-                (5 - n), characterName[node_index], tValue[node_index], infoGain[node_index]))
-            characterName.pop(node_index)
-            TreeGrow(nodeData, tValue, n - 1, node_index)  # 递归扩展节点
+    ig, dClass1, dClass2 = InfoGainFcn(data, threshold, k=n)
+    #  dClass1是高于阈值的数据集，由四个特征分别对应的高于阈值的数据组成
+    # 去掉dClass1的“低信息增益特征”数据,在“高信息增益特征”分类成功基础上向下生长。dClass1对应n个高于属性阈值的数据集
+    if len(dClass1) > 0 and len(dClass2) > 0:
+        nodeData1 = dClass1[parent_node_index]  # 利用“高信息增益特征”分类后剩余数据作为新的数据进行信息熵计算
+        nodeData2 = dClass2[parent_node_index]
+        # tValue1 represents threshold value, infoGain1 represents the infoGain1 list
+        if len(nodeData1) > 0:
+            tValue1, infoGain1 = findBestIG(nodeData1, k=n)
+            node_index1 = infoGain1.index(max(infoGain1))
+            if sum(infoGain1) != 0:
+                dict11 = ParentDict.setdefault(characterName[node_index1] +
+                                               ' : {:.1f}'.format(tValue1[node_index1]), {})  # 拓展树字典
+                print('infoGain1:', infoGain1)
+                print('Node{} is : {}   classification threshold is : {:.1f}   information gain is : {:.3f}'.format(
+                    'left', characterName[node_index1], tValue1[node_index1], infoGain1[node_index1]))
+            else:
+                ParentDict.setdefault('leaf', nodeData1[0][-1])
+                print(nodeData1[0][-1])
+        else:
+            tValue1 = [0, 0, 0, 0]
+            node_index1 = -1
+            infoGain1 = [0, 0, 0, 0]
+            print(nodeData2[0][-1])
+
+        if len(nodeData2) > 0:
+            tValue2, infoGain2 = findBestIG(nodeData2, k=n)
+            node_index2 = infoGain2.index(max(infoGain2))
+            if sum(infoGain2) != 0:
+                if characterName[node_index2] not in ParentDict.keys():
+                    dict21 = ParentDict.setdefault(characterName[node_index2] +
+                                                   ' : {:.1f}'.format(tValue2[node_index2]), {})  # 拓展树字典
+                else:
+                    dict21 = ParentDict.setdefault(characterName[node_index2] + '1' +
+                                                   ' : {:.1f}'.format(tValue2[node_index2]), {})
+                print('infoGain2:', infoGain2)
+                print('Node{} is : {}   classification threshold is : {:.1f}   information gain is : {:.3f}'.format(
+                    'right', characterName[node_index2], tValue2[node_index2], infoGain2[node_index2]))
+            else:
+                if 'leaf' not in ParentDict.keys():
+                    ParentDict.setdefault('leaf', nodeData2[0][-1])
+                else:
+                    ParentDict.setdefault('leaf1', nodeData2[0][-1])
+                print(nodeData2[0][-1])
+        else:
+            tValue2 = [0, 0, 0, 0]
+            node_index2 = -1
+            infoGain2 = [0, 0, 0, 0]
+            print(nodeData1[0][-1])
+
+        print('--------------------------------------------------------------')
+
+        if infoGain1[node_index1] > tIG:  # 如果信息增益较大，我们将对此节点进行扩展
+            TreeGrow(nodeData1, tValue1, n, node_index1, dict11, tIG)  # 递归扩展节点
+        else:
+            p = [0, 0, 0]
+            for each in nodeData1:
+                if each[-1] == 'Iris-versicolor':
+                    p[1] += 1
+                elif each[-1] == 'Iris-virginica':
+                    p[-1] += 1
+                else:
+                    p[0] += 1
+            pIndex = p.index(max(p))
+            ParentDict.setdefault(iris_name[pIndex] + ' with accuracy {}/{}'.format(max(p), sum(p)), 'leaf')
+
+        if infoGain2[node_index2] > tIG:  # 如果信息增益较大，我们将对此节点进行扩展
+            TreeGrow(nodeData2, tValue2, n, node_index2, dict21, tIG)  # 递归扩展节点
         else:  # 如果信息增益过小，我们将不对此节点进行扩展，成为叶节点并结束分类
+            p = [0, 0, 0]
+            for each in nodeData2:
+                if each[-1] == 'Iris-versicolor':
+                    p[1] += 1
+                elif each[-1] == 'Iris-virginica':
+                    p[-1] += 1
+                else:
+                    p[0] += 1
+            pIndex = p.index(max(p))
+            ParentDict.setdefault(iris_name[pIndex] + ' with accuracy {}/{}'.format(max(p), sum(p)), 'leaf')
             print('---Warning! Information gain is too small to grow as a node---\n'
                   '---------------Decision Tree growth completed!----------------')
 
+    elif len(dClass2) == 0:
+        print(dClass1[0][0][-1])
+    else:
+        print(dClass2[0][0][-1])
 
-def plotTree(): # 在结果的基础上构建决策树的可视化图像
-    g = Digraph('G', filename='DecisionTree.gv')
-    g.node('root', label='ROOT')
-    g.node('node1', label='node1')
-    g.attr('node', shape='doublecircle')
-    g.node('leaf1', label='Setosa',)
-    g.node('leaf2', label='Versicolour')
-    g.node('leaf3', label='Virginica')
-    g.edge('root', 'node1', label='petal length > 1.9')
-    g.edge('root', 'leaf1', label='petal length <= 1.9')
-    g.edge('node1', 'leaf2', label='petal width > 1.7')
-    g.edge('node1', 'leaf3', label='petal width <= 1.7')
-    g.view()
+
+def TreePrune(tree):
+    """
+    除掉决策树的空枝
+    :param tree:初步生成的决策树
+    :return:
+    """
+    tmp = tree.copy()
+    KEY = list(tmp.keys())
+    for key in KEY:
+        if tree[key] == {}:
+            del tree[key]
+        elif type(tree[key]) == dict:
+            TreePrune(tree[key])
+        elif key is 'leaf' or key is 'leaf1':
+            del tree[key]
+    return tree
+
+
+def plotTree(treeDict, pnode):
+    """
+    绘制决策树
+    :param treeDict: 字典类型存储的决策树
+    :param pnode: 上一个节点的名称
+    :return:
+    """
+    global Num
+    root_name = str(Num)
+    g.node(root_name, label=pnode)
+    tmp = treeDict.copy()
+    KEY = list(tmp.keys())
+    for i in range(len(KEY)):  # 找出本层节点
+        Num += 1
+        g.node(str(Num), label=KEY[i])
+        if type(tmp[KEY[i]]) is dict:  # 如果键值是字典的话则递归以穷尽字典
+            g.edge(root_name, str(Num))
+            plotTree(tmp[KEY[i]], KEY[i])
+        else:
+            g.edge(root_name, str(Num))
 
 
 if __name__ == '__main__':
+    TreeDict = {}  # 设置决策树字典全局变量
+    Num = 0  # 节点编号
+    iris_name = ['Setosa', 'Versicolor', 'Virginica']
     characterName = ['sepal length', 'sepal width', 'petal length', 'petal width']
-    iris_data = dataReform()
-    decisionTree(iris_data, 4)
-    plotTree()
+    g = Digraph('G', filename='DecisionTree.gv')  # 初始化绘图
+    iris_data = dataReform()  # 数据整理
+    tree = decisionTree(iris_data, 4, t=0.32)  # 生成决策树字典
+    plotTree(tree, 'root')  # 绘制决策树
+    g.view()
